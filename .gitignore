@@ -1,0 +1,7 @@
+build/
+*.dll
+*.exe
+*.zip
+*.o
+.vs/
+out/

@@ -1,0 +1,26 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MinGW-w64
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 zip
+      - name: Build and package
+        run: make package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StreamCeilingFix
+          path: build/StreamCeilingFix-*.zip
+      - name: Attach to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" build/StreamCeilingFix-*.zip --clobber
