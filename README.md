@@ -1,5 +1,7 @@
 # StreamCeilingFix
 
+**Download:** [Nexus Mods](https://www.nexusmods.com/skyrimspecialedition/mods/197258) or the [Releases](https://github.com/nicktheduke/StreamCeilingFix/releases) page.
+
 An SKSE plugin for Skyrim Special Edition / Anniversary Edition that stops the **"every save is corrupted"** problem huge load orders hit partway through a session.
 
 ## The problem
@@ -41,7 +43,7 @@ If a game build doesn't open files the expected way, the plugin logs `nothing to
 
 ## Install
 
-Grab the zip from Releases and install it with Mod Organizer 2 or Vortex, or copy `SKSE/Plugins/StreamCeilingFix.dll` into `Data/SKSE/Plugins`. To uninstall, remove the DLL.
+Grab the zip from [Nexus Mods](https://www.nexusmods.com/skyrimspecialedition/mods/197258) or Releases and install it with Mod Organizer 2 or Vortex, or copy `SKSE/Plugins/StreamCeilingFix.dll` into `Data/SKSE/Plugins`. To uninstall, remove the DLL.
 
 ## Log
 
