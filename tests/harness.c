@@ -70,6 +70,23 @@ int main(int argc, char** argv)
     } else {
         CHECK(readFile(logMain, logbuf, sizeof(logbuf)) > 0, "StreamCeilingFix.log written");
     }
+#ifdef GUARD_TEST
+    /* This build imports ferror, which the plugin does not wrap: it must refuse to patch anything. */
+    printf("import guard\n");
+    CHECK(strstr(logbuf, "guard: the game imports ferror") != NULL, "log names the unhandled import");
+    CHECK(strstr(logbuf, "NOT active") != NULL && strstr(logbuf, "active:") == NULL, "log says NOT active");
+    FILE* gw = fopen("guard.esp", "wb");
+    if (gw) { fwrite("abc", 1, 3, gw); fclose(gw); }
+    static FILE* gf[600];
+    int gopen = 0;
+    for (int i = 0; i < 600; ++i) { gf[i] = fopen("guard.esp", "rb"); gopen += gf[i] != NULL; }
+    CHECK(gopen > 0 && gopen < 600, "plugin opens stay with the C runtime (its 512 limit applies: %d/600 opened)", gopen);
+    CHECK(gf[0] && fgetc(gf[0]) == 'a' && ferror(gf[0]) == 0, "streams are real C runtime streams");
+    for (int i = 0; i < 600; ++i) if (gf[i]) fclose(gf[i]);
+    DeleteFileA("guard.esp");
+    printf("%s: %d failed\n", g_fail ? "FAILED" : "PASSED", g_fail);
+    return g_fail;
+#endif
     CHECK(strstr(logbuf, "active:") != NULL, "log says active");
 
     printf("write mode passes through to the CRT\n");
@@ -89,7 +106,7 @@ int main(int argc, char** argv)
 
     FILE* plain = fopen("plain.txt", "w");
     CHECK(plain != NULL, "a non-plugin file still opens while %d plugin streams are held", HOLD);
-    if (plain) { fputs("hello\n", plain); fclose(plain); }
+    if (plain) { fwrite("hello\n", 1, 6, plain); fclose(plain); }
 
     printf("reads, seeks and tells match the file (random ops on 50 streams)\n");
     int bad = 0, ops = 0;

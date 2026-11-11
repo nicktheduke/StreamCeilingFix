@@ -1,5 +1,5 @@
 // StreamCeilingFix - SKSE plugin
-// Copyright (c) 2026 NSM. MIT License, see LICENSE.
+// Copyright (c) 2026 nicktheduke. MIT License, see LICENSE.
 //
 // Skyrim keeps every plugin (.esp/.esm/.esl) open through the C runtime (two FILE* per plugin:
 // TESFile::lockedFile + TESFile::file). The UCRT caps open streams at 8192 for the whole process,
@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
+#include <wchar.h>
 
 #define EXPORT __declspec(dllexport)
 
@@ -34,9 +35,9 @@ typedef struct {
 
 EXPORT SKSEPluginVersionData SKSEPlugin_Version = {
     1,
-    (1 << 24) | (0 << 16) | (1 << 4),
+    (1 << 24) | (0 << 16) | (2 << 4),
     "StreamCeilingFix",
-    "NSM",
+    "nicktheduke",
     "",
     1,          /* kVersionIndependentEx_NoStructUse */
     1u << 1,    /* kVersionIndependent_Signatures: no game addresses used, import table only */
@@ -196,6 +197,8 @@ typedef void (__cdecl* rewind_t)(FILE*);
 typedef int (__cdecl* setvbuf_t)(FILE*, char*, int, size_t);
 typedef int (__cdecl* ungetc_t)(int, FILE*);
 typedef int (__cdecl* fputc_t)(int, FILE*);
+typedef wint_t (__cdecl* fputwc_t)(wchar_t, FILE*);
+typedef int (__cdecl* fputs_t)(const char*, FILE*);
 typedef void (__cdecl* lock_t)(FILE*);
 typedef int (__cdecl* gsbp_t)(FILE*, char***, char***, int**);
 typedef int (__cdecl* common_t)(unsigned long long, FILE*, const void*, void*, va_list);
@@ -206,6 +209,7 @@ static fseek_t o_fseek; static fseeki64_t o_fseeki64; static ftell_t o_ftell;
 static f_int_t o_feof, o_fgetc, o_fflush; static fgets_t o_fgets;
 static fgetpos_t o_fgetpos; static fsetpos_t o_fsetpos; static rewind_t o_rewind;
 static setvbuf_t o_setvbuf; static ungetc_t o_ungetc; static fputc_t o_fputc;
+static fputwc_t o_fputwc; static fputs_t o_fputs;
 static lock_t o_lock, o_unlock; static gsbp_t o_gsbp;
 static common_t o_vfprintf, o_vfprintf_s, o_vfprintf_p, o_vfwprintf, o_vfwprintf_s, o_vfwprintf_p, o_vfscanf, o_vfwscanf;
 
@@ -564,6 +568,20 @@ static int __cdecl h_fputc(int c, FILE* f)
     return EOF;
 }
 
+static wint_t __cdecl h_fputwc(wchar_t c, FILE* f)
+{
+    if (!isOurs(f)) return o_fputwc(c, f);
+    setErrno(9);
+    return WEOF;
+}
+
+static int __cdecl h_fputs(const char* str, FILE* f)
+{
+    if (!isOurs(f)) return o_fputs(str, f);
+    setErrno(9);
+    return EOF;
+}
+
 static void __cdecl h_lock(FILE* f) { if (!isOurs(f)) o_lock(f); else EnterCriticalSection(&((SStream*)f)->cs); }
 static void __cdecl h_unlock(FILE* f) { if (!isOurs(f)) o_unlock(f); else LeaveCriticalSection(&((SStream*)f)->cs); }
 
@@ -603,6 +621,8 @@ static HookDef g_hooks[] = {
     { "setvbuf", (void*)h_setvbuf, (void**)&o_setvbuf, 1 },
     { "ungetc", (void*)h_ungetc, (void**)&o_ungetc, 1 },
     { "fputc", (void*)h_fputc, (void**)&o_fputc, 1 },
+    { "fputwc", (void*)h_fputwc, (void**)&o_fputwc, 1 },
+    { "fputs", (void*)h_fputs, (void**)&o_fputs, 1 },
     { "_lock_file", (void*)h_lock, (void**)&o_lock, 1 },
     { "_unlock_file", (void*)h_unlock, (void**)&o_unlock, 1 },
     { "_get_stream_buffer_pointers", (void*)h_gsbp, (void**)&o_gsbp, 1 },
@@ -627,6 +647,54 @@ static int isCrtDll(const char* n)
     return strncmp(l, "api-ms-win-crt-", 15) == 0 || strcmp(l, "ucrtbase.dll") == 0;
 }
 
+/* ---------------- import guard ----------------
+   A stream of ours must never reach the real C runtime. That only holds if every FILE*-taking function
+   the game imports is one we replace. Game builds differ, so check instead of assuming: if the exe imports
+   a stream function we do not handle, or anything from the stdio API set we do not recognise, the plugin
+   leaves the game completely untouched and says why in the log. */
+static const char* const g_unhandledStream[] = {
+    "ferror", "clearerr", "clearerr_s", "_fileno", "freopen", "freopen_s", "_wfreopen", "_wfreopen_s",
+    "fread_s", "_fread_nolock", "_fread_nolock_s", "_fwrite_nolock", "_fclose_nolock", "_fflush_nolock",
+    "_fseek_nolock", "_fseeki64_nolock", "_ftell_nolock", "_ftelli64_nolock", "_ftelli64",
+    "getc", "putc", "_getc_nolock", "_putc_nolock", "_fgetc_nolock", "_fputc_nolock", "_ungetc_nolock",
+    "fgetwc", "getwc", "putwc", "fgetws", "fputws", "ungetwc",
+    "_fgetwc_nolock", "_fputwc_nolock", "_getwc_nolock", "_putwc_nolock", "_ungetwc_nolock",
+    "setbuf", "_getw", "_putw", "_pclose",
+};
+/* stdio API set imports that never receive a FILE* from the game's plugin opens */
+static const char* const g_stdioSafe[] = {
+    "__acrt_iob_func", "__p__commode", "__p__fmode", "_set_fmode", "_get_fmode", "_getcwd", "_wgetcwd",
+    "_getdcwd", "_wgetdcwd", "_setmaxstdio", "_getmaxstdio", "_flushall", "_fcloseall",
+    "_wfopen", "_fsopen", "_wfsopen", "_fdopen", "_wfdopen", "_popen", "_wpopen", "tmpfile", "tmpfile_s",
+    "tmpnam", "tmpnam_s", "_wtmpnam", "_wtmpnam_s", "_tempnam", "_wtempnam",
+    "puts", "_putws", "putchar", "putwchar", "getchar", "getwchar", "gets_s", "_getws_s",
+    "_open", "_wopen", "_sopen", "_wsopen", "_sopen_s", "_wsopen_s", "_creat", "_wcreat", "_close", "_read",
+    "_write", "_lseek", "_lseeki64", "_tell", "_telli64", "_eof", "_commit", "_dup", "_dup2", "_setmode",
+    "_pipe", "_chsize", "_chsize_s", "_filelength", "_filelengthi64", "_locking", "_isatty",
+    "_get_osfhandle", "_open_osfhandle", "_get_printf_count_output", "_set_printf_count_output",
+    "_get_output_format", "_set_output_format",
+};
+static int inList(const char* fn, const char* const* list, size_t n)
+{
+    for (size_t i = 0; i < n; ++i) if (strcmp(fn, list[i]) == 0) return 1;
+    return 0;
+}
+static int isStdioSet(const char* n)
+{
+    char l[32]; size_t i = 0;
+    for (; n[i] && i < sizeof(l) - 1; ++i) l[i] = (char)(n[i] | ((n[i] >= 'A' && n[i] <= 'Z') ? 32 : 0));
+    l[i] = 0;
+    return strncmp(l, "api-ms-win-crt-stdio-", 21) == 0;
+}
+/* 1 = import is fine, 0 = a stream of ours could reach the real C runtime through it */
+static int importIsSafe(const char* fn, int stdioSet)
+{
+    if (inList(fn, g_unhandledStream, sizeof(g_unhandledStream) / sizeof(g_unhandledStream[0]))) return 0;
+    if (!stdioSet) return 1;
+    if (strncmp(fn, "__stdio_common_vs", 17) == 0) return 1;   /* string formatting, no FILE* */
+    return inList(fn, g_stdioSafe, sizeof(g_stdioSafe) / sizeof(g_stdioSafe[0]));
+}
+
 static int patchIAT(void)
 {
     unsigned char* base = (unsigned char*)GetModuleHandleW(NULL);
@@ -636,19 +704,36 @@ static int patchIAT(void)
     if (!dir.VirtualAddress) { slog("no import table"); return 0; }
 
     Found found[NHOOKS]; memset(found, 0, sizeof(found));
+    int unhandled = 0;
     for (IMAGE_IMPORT_DESCRIPTOR* d = (IMAGE_IMPORT_DESCRIPTOR*)(base + dir.VirtualAddress); d->Name; ++d) {
         if (!isCrtDll((const char*)(base + d->Name)) || !d->OriginalFirstThunk) continue;
+        int stdioSet = isStdioSet((const char*)(base + d->Name));
         IMAGE_THUNK_DATA64* names = (IMAGE_THUNK_DATA64*)(base + d->OriginalFirstThunk);
         IMAGE_THUNK_DATA64* slots = (IMAGE_THUNK_DATA64*)(base + d->FirstThunk);
         for (; names->u1.AddressOfData; ++names, ++slots) {
-            if (IMAGE_SNAP_BY_ORDINAL64(names->u1.Ordinal)) continue;
+            if (IMAGE_SNAP_BY_ORDINAL64(names->u1.Ordinal)) {
+                if (stdioSet) { slog("guard: stdio import by ordinal, cannot be checked"); unhandled++; }
+                continue;
+            }
             const char* fn = (const char*)((IMAGE_IMPORT_BY_NAME*)(base + names->u1.AddressOfData))->Name;
-            for (size_t i = 0; i < NHOOKS; ++i)
-                if (!found[i].slot && strcmp(fn, g_hooks[i].name) == 0) { found[i].slot = (void**)&slots->u1.Function; found[i].def = &g_hooks[i]; }
+            int hooked = 0;
+            for (size_t i = 0; i < NHOOKS; ++i) {
+                if (strcmp(fn, g_hooks[i].name) != 0) continue;
+                hooked = 1;
+                if (!found[i].slot) { found[i].slot = (void**)&slots->u1.Function; found[i].def = &g_hooks[i]; }
+            }
+            if (!hooked && !importIsSafe(fn, stdioSet)) {
+                slog("guard: the game imports %s, which this version does not handle", fn);
+                unhandled++;
+            }
         }
     }
+    if (unhandled) {
+        slog("guard: %d unhandled stream import(s). Leaving the game untouched. Please report this log with your game version.", unhandled);
+        return 0;
+    }
 
-    /* every FILE*-taking function the game imports must be covered, or ours could reach the real CRT */
+    /* the guard above has confirmed every FILE*-taking function the game imports is covered */
     int haveOpen = 0;
     for (size_t i = 0; i < NHOOKS; ++i) {
         if (found[i].slot && !g_hooks[i].required) haveOpen = 1;
@@ -679,7 +764,7 @@ EXPORT BOOL SKSEPlugin_Load(const void* skse)
 {
     (void)skse;
     openLog();
-    slog("StreamCeilingFix 1.0.1 (pid %lu)", GetCurrentProcessId());
+    slog("StreamCeilingFix 1.0.2 (pid %lu)", GetCurrentProcessId());
     if (g_logIndex > 0) slog("note: StreamCeilingFix.log was locked by another process (a game that did not fully exit?), logging here instead");
     HMODULE ucrt = GetModuleHandleW(L"ucrtbase.dll");
     if (ucrt) p_errno = (errno_fn)(void*)GetProcAddress(ucrt, "_errno");
@@ -697,7 +782,7 @@ EXPORT BOOL SKSEPlugin_Query(const void* skse, SKSEPluginInfo* info)
     (void)skse;
     info->infoVersion = 1;
     info->name = "StreamCeilingFix";
-    info->version = 0x01000100;
+    info->version = 0x01000200;
     return TRUE;
 }
 

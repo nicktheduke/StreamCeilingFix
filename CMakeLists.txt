@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(StreamCeilingFix VERSION 1.0.1 LANGUAGES C)
+project(StreamCeilingFix VERSION 1.0.2 LANGUAGES C)
 
 # Builds StreamCeilingFix.dll with MSVC (Visual Studio 2019+) or MinGW-w64.
 #   cmake -B build -A x64 && cmake --build build --config Release

@@ -1,5 +1,5 @@
-StreamCeilingFix 1.0.1 - SKSE plugin
-by NSM
+StreamCeilingFix 1.0.2 - SKSE plugin
+by nicktheduke
 
 WHAT IT FIXES
 Very large load orders start showing every save as "corrupted" partway through a session.
@@ -30,8 +30,10 @@ REQUIREMENTS
 
 VERSIONS
 Tested on Skyrim SE 1.6.1170 (Steam). Built version-independent for AE and with the
-1.5.97 SKSE entry point; if a build doesn't open files the expected way, it logs
-"nothing to do" and stays out of the way.
+1.5.97 SKSE entry point. At startup the plugin checks which C runtime file functions
+your game build uses. If it finds one it does not handle, it logs "guard: ..." and
+"NOT active" and leaves the game completely untouched, so an unsupported build can't
+be harmed by it.
 
 INSTALL
 Install with Mod Organizer 2 or Vortex, or copy SKSE\Plugins\StreamCeilingFix.dll into
@@ -39,5 +41,6 @@ Data\SKSE\Plugins. To uninstall, remove the DLL.
 
 LOG
 Documents\My Games\Skyrim Special Edition\SKSE\StreamCeilingFix.log
-Look for "active" and "taking over: ..." lines. If that file is still held by a game
+Look for "active" and "taking over: ..." lines. "NOT active" with "guard:" lines means
+your game build isn't supported yet: please report the log with your game version. If that file is still held by a game
 process that did not fully exit, the log goes to StreamCeilingFix.1.log instead.

@@ -1,8 +1,8 @@
 # Cross-compile with MinGW-w64 (Linux, WSL or MSYS2) and test under Wine.
 #   make           build build/StreamCeilingFix.dll
-#   make test      build the UCRT test harness and run it under Wine (normal + locked-log runs)
+#   make test      build the UCRT test harness and run it under Wine (normal, locked-log and import-guard runs)
 #   make package   build/StreamCeilingFix-<version>.zip, ready for MO2 / Vortex
-VERSION ?= 1.0.1
+VERSION ?= 1.0.2
 CC      ?= x86_64-w64-mingw32-gcc
 ifeq ($(CC),cc)
 CC := x86_64-w64-mingw32-gcc
@@ -26,9 +26,13 @@ build/ucrt.specs: | build
 build/harness.exe: tests/harness.c build/ucrt.specs | build
 	$(CC) -specs=build/ucrt.specs -O1 -o $@ $< -lshell32
 
-test: $(DLL) build/harness.exe
+build/harness_guard.exe: tests/harness.c build/ucrt.specs | build
+	$(CC) -specs=build/ucrt.specs -O1 -DGUARD_TEST -o $@ $< -lshell32
+
+test: $(DLL) build/harness.exe build/harness_guard.exe
 	cd build && WINEDEBUG=-all $(WINE) harness.exe
 	cd build && WINEDEBUG=-all $(WINE) harness.exe lock
+	cd build && WINEDEBUG=-all $(WINE) harness_guard.exe
 
 package: $(DLL)
 	rm -rf build/pkg && mkdir -p build/pkg/SKSE/Plugins

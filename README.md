@@ -19,6 +19,8 @@ StreamCeilingFix patches the game's import table so its **read-only binary opens
 - Only `.esp`, `.esm` and `.esl` opened in read-binary mode (`"rb"`) by **SkyrimSE.exe itself** are taken over.
 - Saves, INIs, anything opened for writing or in text mode, and every other DLL go through the original C runtime untouched.
 - Every `FILE*` function the game imports (`fread`, `fseek`, `_fseeki64`, `ftell`, `fgetc`, `ungetc`, `fgetpos`, ...) is wrapped, so a stream the plugin owns can never reach the real C runtime.
+- **Import guard**: this is checked at startup, not assumed. The plugin reads the game's import table, and if the game uses a stream function it doesn't wrap (or anything unrecognised from the C runtime's stdio set), it logs `guard: ...`, reports `NOT active` and changes nothing.
+- A stream is recognised as the plugin's by address: they all live in one reserved memory block, so a C runtime stream can't be mistaken for one or the other way round.
 - **No game memory addresses**: it only touches the game's import table. It does not need Address Library and should survive game updates.
 
 On a 3,683-plugin load order the game sits at ~7,900 open files at the main menu and used to break shortly after loading into Tamriel. With StreamCeilingFix it runs with 9,100+ open files and the C runtime still has free slots.
@@ -35,11 +37,11 @@ Load orders of roughly **3000+ plugins**, or anyone whose saves show as corrupte
 | SSE Engine Fixes | Recommended (raises the C runtime limit to 8192) |
 | Address Library | Not needed |
 | Skyrim 1.6.1170 (Steam) | Tested in game |
-| Other AE builds, GOG | Should work (version-independent, untested) |
-| SE 1.5.97 | Should work (`SKSEPlugin_Query` included, untested) |
+| Other AE builds, GOG | Should work (untested); the import guard disables the plugin if the build isn't compatible |
+| SE 1.5.97 | Should work (`SKSEPlugin_Query` included, untested); same guard applies |
 | VR | Untested |
 
-If a game build doesn't open files the expected way, the plugin logs `nothing to do` and stays out of the way.
+If a game build doesn't open files the expected way, the plugin logs `nothing to do` or `guard: ...` and stays out of the way. If you see `NOT active`, please open an issue with the log and your game version.
 
 ## Install
 
@@ -50,7 +52,7 @@ Grab the zip from [Nexus Mods](https://www.nexusmods.com/skyrimspecialedition/mo
 `Documents/My Games/Skyrim Special Edition/SKSE/StreamCeilingFix.log`
 
 ```
-StreamCeilingFix 1.0.1 (pid 12345)
+StreamCeilingFix 1.0.2 (pid 12345)
 active: the game's read-only plugin file opens no longer use C runtime stream slots
 taking over: ...\Data/Dawnguard.esm
 plugin streams held outside the CRT: 1000 open (peak 1000, 1005 opened in total)
@@ -87,6 +89,7 @@ The CMake build is checked with MinGW; MSVC builds should work but haven't been 
 - 200,000 random `fread` / `fgetc` / `ungetc` / `fseek` / `_fseeki64` / `ftell` / `fgetpos` / `fsetpos` operations checked byte-for-byte against the file
 - `fopen_s`, `_wfopen_s`, and `ENOENT` for a missing plugin
 - the locked-log fallback (`harness.exe lock`)
+- the import guard (`harness_guard.exe`, a build that imports `ferror`): the plugin must report `NOT active` and leave plugin opens with the C runtime
 
 Without the plugin, the same harness fails at 509 open files and can't open anything else afterwards: the exact failure the game hits.
 
